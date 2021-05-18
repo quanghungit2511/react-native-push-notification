@@ -23,6 +23,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.service.notification.StatusBarNotification;
 import android.util.Log;
+import androidx.core.app.RemoteInput;
 
 import androidx.annotation.RequiresApi;
 import androidx.core.app.NotificationCompat;
@@ -46,6 +47,7 @@ import java.util.Map;
 
 import static com.dieam.reactnativepushnotification.modules.RNPushNotification.LOG_TAG;
 import static com.dieam.reactnativepushnotification.modules.RNPushNotificationAttributes.fromJson;
+import static com.dieam.reactnativepushnotification.modules.RNPushNotification.KEY_TEXT_REPLY;
 
 public class RNPushNotificationHelper {
     public static final String PREFERENCES_KEY = "rn_push_notification";
@@ -186,16 +188,17 @@ public class RNPushNotificationHelper {
 
     public void sendToNotificationCentre(final Bundle bundle) {
       RNPushNotificationPicturesAggregator aggregator = new RNPushNotificationPicturesAggregator(new RNPushNotificationPicturesAggregator.Callback() {
-        public void call(Bitmap largeIconImage, Bitmap bigPictureImage) {
-          sendToNotificationCentreWithPicture(bundle, largeIconImage, bigPictureImage);
+        public void call(Bitmap largeIconImage, Bitmap bigPictureImage, Bitmap bigLargeIconImage) {
+          sendToNotificationCentreWithPicture(bundle, largeIconImage, bigPictureImage, bigLargeIconImage);
         }
       });
 
       aggregator.setLargeIconUrl(context, bundle.getString("largeIconUrl"));
+      aggregator.setBigLargeIconUrl(context, bundle.getString("bigLargeIconUrl"));
       aggregator.setBigPictureUrl(context, bundle.getString("bigPictureUrl"));
     }
 
-    public void sendToNotificationCentreWithPicture(Bundle bundle, Bitmap largeIconBitmap, Bitmap bigPictureBitmap) {
+    public void sendToNotificationCentreWithPicture(Bundle bundle, Bitmap largeIconBitmap, Bitmap bigPictureBitmap, Bitmap bigLargeIconBitmap) {
         try {
             Class intentClass = getMainActivityClass();
             if (intentClass == null) {
@@ -319,9 +322,12 @@ public class RNPushNotificationHelper {
             String smallIcon = bundle.getString("smallIcon");
 
             if (smallIcon != null && !smallIcon.isEmpty()) {
-              smallIconResId = res.getIdentifier(smallIcon, "mipmap", packageName);
+                smallIconResId = res.getIdentifier(smallIcon, "drawable", packageName);
+                if (smallIconResId == 0) {
+                    smallIconResId = res.getIdentifier(smallIcon, "mipmap", packageName);
+                }
             } else if(smallIcon == null) {
-              smallIconResId = res.getIdentifier("ic_notification", "mipmap", packageName);
+                smallIconResId = res.getIdentifier("ic_notification", "mipmap", packageName);
             }
 
             if (smallIconResId == 0) {
@@ -341,9 +347,12 @@ public class RNPushNotificationHelper {
                 String largeIcon = bundle.getString("largeIcon");
 
                 if (largeIcon != null && !largeIcon.isEmpty()) {
-                  largeIconResId = res.getIdentifier(largeIcon, "mipmap", packageName);
+                    largeIconResId = res.getIdentifier(largeIcon, "drawable", packageName);
+                    if (largeIconResId == 0) {
+                        largeIconResId = res.getIdentifier(largeIcon, "mipmap", packageName);
+                    }
                 } else if(largeIcon == null) {
-                  largeIconResId = res.getIdentifier("ic_launcher", "mipmap", packageName);
+                    largeIconResId = res.getIdentifier("ic_launcher", "mipmap", packageName);
                 }
 
                 // Before Lolipop there was no large icon for notifications.
@@ -375,10 +384,26 @@ public class RNPushNotificationHelper {
             NotificationCompat.Style style;
 
             if(bigPictureBitmap != null) {
+
+              // Big large icon
+              if(bigLargeIconBitmap == null) {
+                  int bigLargeIconResId = 0;
+
+                  String bigLargeIcon = bundle.getString("bigLargeIcon");
+
+                  if (bigLargeIcon != null && !bigLargeIcon.isEmpty()) {
+                    bigLargeIconResId = res.getIdentifier(bigLargeIcon, "mipmap", packageName);
+                    if (bigLargeIconResId != 0) {
+                      bigLargeIconBitmap = BitmapFactory.decodeResource(res, bigLargeIconResId);
+                    }
+                  }
+              }
+
               style = new NotificationCompat.BigPictureStyle()
                       .bigPicture(bigPictureBitmap)
                       .setBigContentTitle(title)
-                      .setSummaryText(message);
+                      .setSummaryText(message)
+                      .bigLargeIcon(bigLargeIconBitmap);
             }
             else {
               style = new NotificationCompat.BigTextStyle().bigText(bigText);
@@ -402,10 +427,6 @@ public class RNPushNotificationHelper {
 
             if (!bundle.containsKey("playSound") || bundle.getBoolean("playSound")) {
                 String soundName = bundle.getString("soundName");
-
-                if (soundName == null) {
-                    soundName = "default";
-                }
 
                 soundUri = getSoundUri(soundName);
 
@@ -514,13 +535,35 @@ public class RNPushNotificationHelper {
 
                     PendingIntent pendingActionIntent = PendingIntent.getBroadcast(context, notificationID, actionIntent,
                             PendingIntent.FLAG_UPDATE_CURRENT);
+                    if(action.equals("ReplyInput")){
+                        //Action with inline reply
+                        if(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.KITKAT_WATCH){
+                            RemoteInput remoteInput = new RemoteInput.Builder(KEY_TEXT_REPLY)
+                                    .setLabel(bundle.getString("reply_placeholder_text"))
+                                    .build();
+                            NotificationCompat.Action replyAction = new NotificationCompat.Action.Builder(
+                                    icon, bundle.getString("reply_button_text"), pendingActionIntent)
+                                    .addRemoteInput(remoteInput)
+                                    .setAllowGeneratedReplies(true)
+                                    .build();
 
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-                      notification.addAction(new NotificationCompat.Action.Builder(icon, action, pendingActionIntent).build());
-                    } else {
-                      notification.addAction(icon, action, pendingActionIntent);
+                            notification.addAction(replyAction);
+                        }
+                        else{
+                            // The notification will not have action
+                            break;
+                        }
+                    }
+                    else{
+                        // Add "action" for later identifying which button gets pressed
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                          notification.addAction(new NotificationCompat.Action.Builder(icon, action, pendingActionIntent).build());
+                        } else {
+                          notification.addAction(icon, action, pendingActionIntent);
+                        }
                     }
                 }
+
             }
 
             // Remove the notification from the shared preferences once it has been shown
@@ -680,10 +723,15 @@ public class RNPushNotificationHelper {
 
     @RequiresApi(api = Build.VERSION_CODES.M)
     public WritableArray getDeliveredNotifications() {
+      WritableArray result = Arguments.createArray();
+  
+      if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+        return result;
+      }
+
       NotificationManager notificationManager = notificationManager();
       StatusBarNotification delivered[] = notificationManager.getActiveNotifications();
       Log.i(LOG_TAG, "Found " + delivered.length + " delivered notifications");
-      WritableArray result = Arguments.createArray();
       /*
         * stay consistent to the return structure in
         * https://facebook.github.io/react-native/docs/pushnotificationios.html#getdeliverednotifications
@@ -722,6 +770,7 @@ public class RNPushNotificationHelper {
                 notificationMap.putString("id", notification.getId());
                 notificationMap.putString("repeatInterval", notification.getRepeatType());
                 notificationMap.putString("soundName", notification.getSound());
+                notificationMap.putString("data", notification.getUserInfo());
 
                 scheduled.pushMap(notificationMap);
             } catch (JSONException e) {
@@ -905,6 +954,7 @@ public class RNPushNotificationHelper {
         String channelId = channelInfo.getString("channelId");
         String channelName = channelInfo.getString("channelName");
         String channelDescription = channelInfo.hasKey("channelDescription") ? channelInfo.getString("channelDescription") : "";
+        boolean playSound = !channelInfo.hasKey("playSound") || channelInfo.getBoolean("playSound");
         String soundName = channelInfo.hasKey("soundName") ? channelInfo.getString("soundName") : "default";
         int importance = channelInfo.hasKey("importance") ? channelInfo.getInt("importance") : 4;
         boolean vibrate = channelInfo.hasKey("vibrate") && channelInfo.getBoolean("vibrate");
@@ -912,7 +962,7 @@ public class RNPushNotificationHelper {
 
         NotificationManager manager = notificationManager();
 
-        Uri soundUri = getSoundUri(soundName);
+        Uri soundUri = playSound ? getSoundUri(soundName) : null;
 
         return checkOrCreateChannel(manager, channelId, channelName, channelDescription, soundUri, importance, vibratePattern);
     }
