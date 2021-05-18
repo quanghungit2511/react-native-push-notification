@@ -56,4 +56,5 @@ dependencies {
     implementation 'com.facebook.react:react-native:+'
     implementation 'me.leolin:ShortcutBadger:1.1.22@aar'
     // implementation "com.google.firebase:firebase-messaging:${safeExtGet('firebaseMessagingVersion', '+')}"
+    implementation 'com.google.firebase:firebase-core:16.0.7';
 }
